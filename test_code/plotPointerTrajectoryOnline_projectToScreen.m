@@ -8,8 +8,8 @@ pointer_IDs = [3,6; 3,7; 3,8];
 coordinate_IDs = [3, 10; 3,9; 3,11]; % origin, pos x axis, x-y-plane
 
 % Physical size of screen image area (width, height)
-%ss_mm = [474, 291]; % miro screen (roughly!)
-ss_mm = [531, 299]; % gecko screen (roughly!)
+ss_mm = [474, 291]; % miro screen (roughly!)
+%ss_mm = [531, 299]; % gecko screen (roughly!)
 
 % for tip position
 velThresh = 2000;
@@ -75,6 +75,10 @@ while ~quit
         
         % Plot tip position
         [h_comp, h_axs] = drawCube(hAx, tp);
+        %disp(VzGetDat)
+        %disp(tp)
+        %disp(dataGood)
+        %disp(markerData)
         plot3(hAx, tp(1), tp(2), tp(3), 'marker', 'o', 'color', mColor, ...
             'markerfacecolor', mColor, 'displayname', 'Tip position')
         text( tp(1), tp(2), tp(3), ...
