@@ -376,10 +376,10 @@ while 1
                 hStreamingUpdateButton.UserData.wasClicked                
                 hStreamingUpdateButton.UserData.wasClicked = 0;                            
                 nFrames = data(1).nFrames;
-                frames = data(1).frames;              
-                frameRate = nFrames/takeDuration; 
+                frames = data(1).frames;                              
                 T = relativeTimeStamps(frames, frameRate); 
-                takeDuration = max(T);                                                               
+                takeDuration = max(T);                
+                frameRate = nFrames/takeDuration; 
                 hFrameSlider.Max = nFrames;
                 hFrameSlider.SliderStep = [1/nFrames, 1/nFrames];  
                 tElapsed = T(end);
@@ -406,7 +406,7 @@ while 1
            hSaveStreamingButton.UserData.wasClicked = 0;
             % save only streamed data updated in UI (not that recorded in
             % background)
-            saveStreamedData(data, frames, nFrames)                  
+            saveStreamedData(data, frames, nFrames, frameRate)                  
         end
         
         % For quitters
@@ -685,7 +685,7 @@ catch
             'your streamed data before the application closes?'], ...
             'Error', 'Yes', 'No', 'Yes');
         if strcmp(resp, 'Yes')
-           saveStreamedData(data, frames, nFrames)
+           saveStreamedData(data, frames, nFrames, frameRate)
         end
     end    
     close(hFig);
@@ -854,10 +854,11 @@ end
 
 %%%% Helper functions
 
-function saveStreamedData(data, frames, nFrames)
+function saveStreamedData(data, frames, nFrames, frameRate)
 try        
     data(1).frames = frames;
     data(1).nFrames = nFrames;    
+    data(1).frameRate = frameRate;        
     [f,p] = uiputfile('*.mat','Save streamed data');
     save([p,f],'data');    
 catch
@@ -875,7 +876,7 @@ end
 
 function T = relativeTimeStamps(frames,frameRate)
 % Get frame time stamps relative to first frame, compensate for wrap-around
-% of time stamps (occurs periodically).       
+% of time stamps (occurs periodically).                               
         T = squeeze(frames(end,6,:)) - frames(end,6,1);        
         timeWrapInds = find(round(diff(T))<0)+1;
         for twInd = timeWrapInds'
@@ -896,30 +897,30 @@ end
 
 % FOR DEBUGGING. Replaces PTI's VzGetDat and streams random data.
 %
-% function data = VzGetDat()
-% 
-%     % Number of data changes per second (note that the round time of the
-%     % MATLAB code of the visualizer will restrict the effective fps in any
-%     % live-streaming setup).
-%     desiredFps = 100;
-% 
-%     persistent startTime;
-%     persistent t;
-%     persistent lastTime;
-%     persistent lastData;
-% 
-%     if isempty(startTime)
-%         startTime = tic;
-%         lastTime = tic;
-%     end
-% 
-%     t = toc(startTime);
-%     if toc(lastTime) > 1/desiredFps || isempty(lastData)
-%         lastTime = tic;
-%         data = [rand(3,5), ones(3,1) * t, ones(3,1)];
-%         lastData = data;
-%     else
-%         data = [lastData(:,1:5),ones(3,1)*t,ones(3,1)];
-%     end
-% 
-% end
+function data = VzGetDat()
+
+    % Number of data changes per second (note that the round time of the
+    % MATLAB code of the visualizer will restrict the effective fps in any
+    % live-streaming setup).
+    desiredFps = 100;
+
+    persistent startTime;
+    persistent t;
+    persistent lastTime;
+    persistent lastData;
+
+    if isempty(startTime)
+        startTime = tic;
+        lastTime = tic;
+    end
+
+    t = toc(startTime);
+    if toc(lastTime) > 1/desiredFps || isempty(lastData)
+        lastTime = tic;
+        data = [rand(3,5), ones(3,1) * t, ones(3,1)];
+        lastData = data;
+    else
+        data = [lastData(:,1:5),ones(3,1)*t,ones(3,1)];
+    end
+
+end
