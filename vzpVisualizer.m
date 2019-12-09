@@ -217,6 +217,7 @@ try
 
 speedSelected = hSpeedMenu.Value;
 speed = speeds(speedSelected);
+streamingModeActive = 0;
 
 while 1    
     
@@ -317,9 +318,11 @@ while 1
         % Set axes limit to min and max values occurring in data
         
         tmpFrames = frames;
-        for i = 1:size(tmpFrames,3)
-            bad = tmpFrames(:,7,i) ~= 1;
-            tmpFrames(bad,:,i) = nan;
+        if size(tmpFrames,2) == 7 % streamed data has no data quality column
+            for i = 1:size(tmpFrames,3)
+                bad = tmpFrames(:,7,i) ~= 1;
+                tmpFrames(bad,:,i) = nan;
+            end
         end
         tmpFrames = tmpFrames(:,[3,4,5],:);
         tmpFrames = tmpFrames(:);
@@ -345,7 +348,7 @@ while 1
     frameLoopRoundTime = nan;
     tic    
     
-    while 1
+    while 1                
         
         frameLoopTic = tic; % to measure loop round time
         if frameLoopCounter > 0
@@ -365,7 +368,8 @@ while 1
         end
                 
         % in case streaming is active
-        if hStreamCheckbox.Value                                                            
+        if hStreamCheckbox.Value              
+            streamingModeActive = 1;
             % Get frame from trackers (record even when paused)                        
             data(1).frames(:,:,end+1) = getDat();            
             data(1).nFrames = size(data(1).frames,3);                                           
@@ -398,7 +402,9 @@ while 1
                 hStreamingPauseButton.UserData.justDisabled = 0;
                 speed = oldSpeed;
                 hSpeedMenu.Value = oldSpeedMenuValue;            
-            end                                  
+            end           
+        else
+            streamingModeActive = 0;
         end                
                 
         % Saving streamed data
@@ -410,7 +416,15 @@ while 1
         end
         
         % For quitters
-        if hQuitButton.UserData.wantQuit
+        if hQuitButton.UserData.wantQuit           
+            if streamingModeActive
+                resp = ...
+                    questdlg(['Save streamed data to file before quitting?'], ...
+                    'Save data', 'Yes', 'No', 'Yes');
+                if strcmp(resp, 'Yes')
+                    saveStreamedData(data, frames, nFrames, frameRate)
+                end
+            end            
             close(hFig);
             return
         end
@@ -535,7 +549,12 @@ while 1
                 % contain only zero position data)
                 
                 frame = frames(:,:,curFrame);                
-                rowsMarkedGood = find(frame(:,7))';                     
+                if size(frame,2) == 7 
+                    goodDataCol = frame(:,7);                     
+                else % streamed data has no column 7
+                    goodDataCol = ones(size(frame,1),1);
+                end
+                rowsMarkedGood = find(goodDataCol)';                     
                 [~,zeroRows] = zeroDataCheck(frame);  
                 rowsNotZero = setdiff(1:nMarkers, zeroRows);
                 % store last good position (not zero, not bad data)
@@ -556,10 +575,15 @@ while 1
                 rowsUsable = toBoolMask(rowsUsable, nMarkers);                
                 
                 % Update table
-                hDataTable.Data = [num2cell(frame(:,1:2)), ...
-                    arrayfun(@(x) sprintf('%.4f\n',x), frame(:,3:6),'un',0), ...
-                    num2cell(frame(:,7))];
-                
+                tblData = [num2cell(frame(:,1:2)), ...
+                        arrayfun(@(x) sprintf('%.4f\n',x), frame(:,3:6),'un',0)];
+                % last (good data column depends on whether loaded or streamed)
+                if size(frame,2) == 7                    
+                    tblData = [tblData, num2cell(frame(:,7))];                                        
+                else
+                    tblData = [tblData, num2cell(nan(size(frame,2),1))];
+                end
+                hDataTable.Data = tblData;
                 
                 % Get history over last steps, for lines
                 
@@ -582,7 +606,8 @@ while 1
                         col(col>1) = 1;
                         dt.MarkerFaceColor = col;
                         % add marker labels
-                        hLabels(j) = text(hAx, ...                        
+                        hAx;
+                        hLabels(j) = text(...                        
                         dt.XData(1), dt.YData(1), dt.ZData(1), ...
                             ['  ', num2str(frame(j,1)), '|', num2str(frame(j,2))]);                                                
                     end
@@ -679,19 +704,19 @@ end
 % in case an error occurs and streaming mode is running, allow user to save
 % data before closing.
 catch
-    if hStreamCheckbox.Value
+    if streamingModeActive
         resp = ...
-        questdlg(['Something went wrong. Would you like to save ', ...
+        questdlg(['Something went wrong or you closed the window instead ', ...
+            'of hitting quit. Would you like to save ', ...
             'your streamed data before the application closes?'], ...
             'Error', 'Yes', 'No', 'Yes');
         if strcmp(resp, 'Yes')
            saveStreamedData(data, frames, nFrames, frameRate)
         end
-    end    
+    end
+    try
     close(hFig);
-    error(['There was an error. Sorry! I''d appreciate if you would create', ...
-        ' an issue at github.com/JnsLns/pti_mocap_functions, describing ', ...
-        'what lead up to the crash. Thanks!'])    
+    end 
 end
 
 
@@ -709,7 +734,7 @@ function load_cb(h,~)
 
 loadError = 0;
 
-[f,p] = uigetfile({'*.mat','*.vzp'});
+[f,p] = uigetfile({'*.vzp';'*.mat'});
 filename = [p,f];
 fl = length(filename);
 if ~ischar(filename)
@@ -776,6 +801,22 @@ end
 end
 
 function streamCheckbox_cb(h, ~)
+
+% test for presence of VzGetDat
+if h.Value
+    funPresent = 1;            
+    try
+        tmp = VzGetDat();                
+    catch
+        funPresent = 0;
+    end    
+    if ~funPresent
+        warndlg('Call to VzGetDat failed. Make sure it is on your MATLAB path.');
+        h.Value = 0;
+        return
+    end    
+end
+
 h.UserData.wasChecked = h.Value;
 h.UserData.wasUnchecked = ~h.Value;    
 sub = findobj(h.Parent,'tag','StreamingUpdateButton');
