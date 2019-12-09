@@ -56,8 +56,10 @@ hFrameText = ...
     uicontrol(hFig, 'style', 'text', 'units', 'pixels', ...
     'position', [hBorder, vSliderBorder+height, fullWidth, height], ...
     'string', 'Frame n/a of n/a | n/a of n/a s | n/a fps', ...
-    'horizontalAlignment', 'center');
-hFrameText.Units = 'normalized';
+    'horizontalAlignment', 'center', 'tooltip', ...
+    ['fps are obtained from loaded file or as streaming average. ', ...
+    '''trackers queried @'' gives a hard limit due to MATLAB loop round time.']);
+    hFrameText.Units = 'normalized';
 
 hPauseButton = ...
     uicontrol(hFig, 'style', 'pushbutton', 'units', 'pixels', ...
@@ -119,7 +121,9 @@ hTakeText = ...
 hLoadButton = ...
     uicontrol(hFig, 'style', 'pushbutton', 'units', 'pixels', ...
     'position', uiPos(1,17,hBorder,vBorder), ...
-    'string', 'Load data file', 'callback', @load_cb);
+    'string', 'Load data file', 'callback', @load_cb, 'tooltip', ...
+    ['Load *.vzp or *.mat file (the latter must contain data ', ...
+    'in the format returned by loadVzpFile()).']);
 hLoadButton.UserData.data = [];
 hLoadButton.UserData.newFileLoaded = 0;
 
@@ -129,28 +133,33 @@ hSaveStreamingButton = ...
     'position', uiPos(1,19,hBorder,vBorder), ...
     'string', 'Save to file', 'callback', @streamingSave_cb, ...
     'UserData', struct('wasClicked', 0), 'tag', ...
-    'hSaveStreamingButton', 'Enable', 'off');
+    'hSaveStreamingButton', 'Enable', 'off', 'tooltip', ...
+    'Save streamed data to *.mat file.');
 
 hStreamingDiscardButton = ...
     uicontrol(hFig, 'style', 'pushbutton', 'units', 'pixels', ...
     'position', uiPos(1,20,hBorder,vBorder), ...
     'string', 'Restart recording', 'callback', @streamingDiscard_cb, ...
     'UserData', struct('wasClicked', 0), 'tag', ...
-    'StreamingDiscardButton', 'Enable', 'off');
+    'StreamingDiscardButton', 'Enable', 'off' , 'tooltip', ...
+    'Discard data streamed so far and start new data recording.');
 
 hStreamingUpdateButton = ...
     uicontrol(hFig, 'style', 'pushbutton', 'units', 'pixels', ...
     'position', uiPos(1,21,hBorder,vBorder), ...
     'string', 'Update streamed data', 'callback', @streamingUpdate_cb, ...
     'UserData', struct('wasClicked', 0), 'tag', 'StreamingUpdateButton', ...
-    'Enable', 'off');
+    'Enable', 'off', 'tooltip', ['Do not resume the live plotting, but ', ...
+    'add data captured in the meantime to the plot.']);
 
 hStreamingPauseButton = ...
     uicontrol(hFig, 'style', 'pushbutton', 'units', 'pixels', ...
     'position', uiPos(1,22,hBorder,vBorder), ...
     'string', 'Pause live plot', 'callback', @streamingPause_cb, 'UserData', ...
     struct('active',0,'justEnabled',0,'justDisabled',0), 'tag', ...
-    'StreamingPauseButton', 'Enable', 'off');
+    'StreamingPauseButton', 'Enable', 'off', 'tooltip', ...
+    ['Stop the live plot, enabling to inspect data captured thus far. ', ...
+    'Data recording resumes in background but won''t update plots.' ]);
 
 hStreamCheckbox = ...
     uicontrol(hFig, 'style', 'checkbox', 'units', 'pixels', ...
@@ -192,7 +201,7 @@ hDataTable.Units = 'normalized';
 hAx.Units = 'normalized';                               
 hFig.Visible = 'on';
 
-
+try
 
 % Note: There are two main loops here, the outer one just below, which
 % determines what data are used, and an inner one, which iterates over the
@@ -397,12 +406,7 @@ while 1
            hSaveStreamingButton.UserData.wasClicked = 0;
             % save only streamed data updated in UI (not that recorded in
             % background)
-            bak = data;
-            data(1).nFrames = nFrames;
-            data(1).frames = frames;                                   
-            [f,p] = uiputfile('*.mat','Save streamed data');                                    
-            save([p,f],'data');
-            data = bak;
+            saveStreamedData(data, frames, nFrames)                  
         end
         
         % For quitters
@@ -665,13 +669,40 @@ while 1
         end    
         
         frameLoopCounter = frameLoopCounter + 1;
+        if frameLoopCounter == 5
+            a(-1) = 0
+        end
         frameLoopRoundTime = toc(frameLoopTic);
         
     end
        
 end
 
+
+% in case an error occurs and streaming mode is running, allow user to save
+% data before closing.
+catch
+    if hStreamCheckbox.Value
+        resp = ...
+        questdlg(['Something went wrong. Would you like to save ', ...
+            'your streamed data before the application closes?'], ...
+            'Error', 'Yes', 'No', 'Yes');
+        if strcmp(resp, 'Yes')
+           saveStreamedData(data, frames, nFrames)
+        end
+    end    
+    close(hFig);
+    error(['There was an error. Sorry! I''d appreciate if you would create', ...
+        ' an issue at github.com/JnsLns/pti_mocap_functions, describing ', ...
+        'what lead up to the crash. Thanks!'])    
 end
+
+
+end
+
+
+
+%%%% Callbacks
 
 function quit_cb(h,~)
 h.UserData.wantQuit = 1;
@@ -679,7 +710,6 @@ end
 
 function load_cb(h,~)
 
-disp('Loading data...')
 loadError = 0;
 
 [f,p] = uigetfile({'*.mat','*.vzp'});
@@ -693,10 +723,13 @@ elseif strcmp(filename(fl-3:end),'.mat')
         loadError = 1;
         msgbox(['Loaded mat-file must contain data in a struct ''data'', ', ...
             'as output by function loadVzpFile.'],'Invalid data format')
+    else
+        disp('Loading data...')
     end
 elseif strcmp(filename(fl-3:end),'.vzp')
     try
         data = loadVzpFile(filename);
+        disp('Loading data...')
     catch
         loadError = 1;
         msgbox('Error loading file.')
@@ -821,7 +854,19 @@ function streamingSave_cb(h,~)
 end
 
 
-% Helper functions
+
+%%%% Helper functions
+
+function saveStreamedData(data, frames, nFrames)
+try        
+    data(1).frames = frames;
+    data(1).nFrames = nFrames;    
+    [f,p] = uiputfile('*.mat','Save streamed data');
+    save([p,f],'data');    
+catch
+    disp('Could not save data.')
+end
+end
 
 function mask = toBoolMask(linds, len)
 % Helper fun to convert from linear indices to boolean mask for vector of
@@ -854,31 +899,31 @@ end
 
 % FOR DEBUGGING. Replaces PTI's VzGetDat and streams random data.
 %
-function data = VzGetDat()
-    
-    % Number of data changes per second (note that the round time of the
-    % MATLAB code of the visualizer will restrict the effective fps in any
-    % live-streaming setup).
-    desiredFps = 100;    
-
-    persistent startTime;
-    persistent t;
-    persistent lastTime;
-    persistent lastData;    
-    
-    if isempty(startTime)
-        startTime = tic;
-        lastTime = tic;
-    end
-    
-    t = toc(startTime);
-    if toc(lastTime) > 1/desiredFps || isempty(lastData)
-        lastTime = tic;
-        data = [rand(3,5), ones(3,1) * t, ones(3,1)];                
-        lastData = data;
-    else
-        data = [lastData(:,1:5),ones(3,1)*t,ones(3,1)];
-    end   
-    
-    
-end
+% function data = VzGetDat()
+%     
+%     % Number of data changes per second (note that the round time of the
+%     % MATLAB code of the visualizer will restrict the effective fps in any
+%     % live-streaming setup).
+%     desiredFps = 100;    
+% 
+%     persistent startTime;
+%     persistent t;
+%     persistent lastTime;
+%     persistent lastData;    
+%     
+%     if isempty(startTime)
+%         startTime = tic;
+%         lastTime = tic;
+%     end
+%     
+%     t = toc(startTime);
+%     if toc(lastTime) > 1/desiredFps || isempty(lastData)
+%         lastTime = tic;
+%         data = [rand(3,5), ones(3,1) * t, ones(3,1)];                
+%         lastData = data;
+%     else
+%         data = [lastData(:,1:5),ones(3,1)*t,ones(3,1)];
+%     end   
+%     
+%     
+% end
