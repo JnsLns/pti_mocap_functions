@@ -55,7 +55,7 @@ addlistener(hFrameSlider,'Value','PreSet',@frameSlider_preSet_cb);
 hFrameText = ...
     uicontrol(hFig, 'style', 'text', 'units', 'pixels', ...
     'position', [hBorder, vSliderBorder+height, fullWidth, height], ...
-    'string', 'Frame 0 of 0 | 0 s', 'horizontalAlignment', 'center');
+    'string', 'Frame n/a of n/a | n/a of n/a s | n/a fps', 'horizontalAlignment', 'center');
 hFrameText.Units = 'normalized';
 
 hPauseButton = ...
@@ -231,8 +231,8 @@ while 1
             tmpDat(:,:,f) = getDat();
         end                
         % compute needed values
-        data(1).nFrames = 5;                
-        data(1).frameRate = f;                               
+        data(1).nFrames = f;                
+        data(1).frameRate = f/sampleTime;                               
         data(1).nMarkers = size(tmpDat,1);        
         data(1).markerNames = cellstr(num2str(tmpDat(:,1:2,1)));
         data(1).markerIDs = tmpDat(:,1:2,1);
@@ -271,20 +271,23 @@ while 1
         previousTake = take;
         previousSpeedSelected = speedSelected;
         
-        % Put data frmo struct into variables used in the following
+        % Put data from struct into variables used in the following
         
         frames = data(take).frames;
         nFrames = data(take).nFrames;
         frameRate = data(take).frameRate;
         nMarkers = data(take).nMarkers;
         lastGoodPos = nan(nMarkers, 3);
+        % Get time stamps relative to first frame
+        T = relativeTimeStamps(frames, frameRate);                
+        takeDuration = max(T);
         
         % Set frame slider properties accordingly
         
         hFrameSlider.Max = nFrames;
         hFrameSlider.SliderStep = [1/nFrames, 1/nFrames];
         
-        % Determine mix and max, disregarding bad data and set axes limits
+        % Determine min and max, disregarding bad data and set axes limits
         % accordingly.        
         tmpFrames = frames;
         for i = 1:size(tmpFrames,3)
@@ -293,21 +296,15 @@ while 1
         end
         tmpFrames = tmpFrames(:,[3,4,5],:);
         tmpFrames = tmpFrames(:);
-        %minVal = prctile(tmpFrames,5);
-        %maxVal = prctile(tmpFrames,95);
         minVal = min(tmpFrames);
         maxVal = max(tmpFrames);        
         set(hAx, 'XLim', [minVal maxVal],...
-            'YLim', [minVal maxVal], 'ZLim', [minVal maxVal]);                      
-        
-        % Get time stamps relative to first frame
-        T = relativeTimeStamps(frames, frameRate);                
+            'YLim', [minVal maxVal], 'ZLim', [minVal maxVal]);                                      
         
     end
     
     % Iterate over frames
-        
-    
+            
     tElapsed = 0;
     curFrame = 0;    
     initializeDots = 1;
@@ -319,7 +316,8 @@ while 1
     tic
     while 1
         
-        % Initialize if streaming was enabled or disabled
+        % Initialize plots if streaming was enabled or disabled or restart
+        % of streaming take requested
         if hStreamCheckbox.UserData.wasChecked || ...
            hStreamCheckbox.UserData.wasUnchecked || ...
            hStreamingDiscardButton.UserData.wasClicked
@@ -330,8 +328,8 @@ while 1
         % in case streaming is active
         if hStreamCheckbox.Value                                                            
             % Get frame from trackers (record even when paused)                        
-            data(1).frames(:,:,end+1) = getDat();
-            data(1).nFrames = data(1).nFrames + 1;                                                           
+            data(1).frames(:,:,end+1) = getDat();            
+            data(1).nFrames = size(data(1).frames,3);                                           
             % If live plot is not paused or update button was pressed.
             % Update plotting variables / UI with new data, update time to
             % last streamed frame
@@ -339,8 +337,10 @@ while 1
                 hStreamingUpdateButton.UserData.wasClicked                
                 hStreamingUpdateButton.UserData.wasClicked = 0;                            
                 nFrames = data(1).nFrames;
-                frames = data(1).frames;
+                frames = data(1).frames;              
+                frameRate = nFrames/takeDuration; 
                 T = relativeTimeStamps(frames, frameRate); 
+                takeDuration = max(T);                                                               
                 hFrameSlider.Max = nFrames;
                 hFrameSlider.SliderStep = [1/nFrames, 1/nFrames];  
                 tElapsed = T(end);
@@ -349,7 +349,7 @@ while 1
             % recorded frames and set speed to 1. When Disabled-> reset
             % speed.
             if hStreamingPauseButton.UserData.justEnabled
-                hStreamingPauseButton.UserData.justEnabled = 0;
+                hStreamingPauseButton.UserData.justEnabled = 0;                                                                
                 tElapsed = 0;
                 oldSpeed = speed;
                 oldSpeedMenuValue = hSpeedMenu.Value;
@@ -424,7 +424,9 @@ while 1
             
             % Update frame number
             hFrameText.String = ['Frame ', num2str(curFrame), ' of ', ...
-                num2str(nFrames), '  |  ', num2str(tElapsed), ' s'];            
+                num2str(nFrames), '  |  ', num2str(tElapsed), ' of ',...
+                num2str(takeDuration) ' s', ...
+                ' | ', num2str(frameRate), ' fps'];            
             % roll around when take duration exceeded
             if tElapsed > T(end)
                 tElapsed = 0;
@@ -489,7 +491,7 @@ while 1
                 
                 % Get current frame data to plot dots (and determine which
                 % rows are marked bad data in column seven and which
-                % contain only zero data)
+                % contain only zero position data)
                 
                 frame = frames(:,:,curFrame);                
                 rowsMarkedGood = find(frame(:,7))';                     
@@ -812,28 +814,28 @@ end
 
 % FOR DEBUGGING. Replaces PTI's VzGetDat and streams random data.
 %
-% function data = VzGetDat()
-%     
-%     updateInterValSecs = 0.05;
-% 
-%     persistent startTime;
-%     persistent t;
-%     persistent lastTime;
-%     persistent lastData;    
-%     
-%     if isempty(startTime)
-%         startTime = tic;
-%         lastTime = tic;
-%     end
-%     
-%     t = toc(startTime);
-%     if toc(lastTime) > updateInterValSecs || isempty(lastData)
-%         lastTime = tic;
-%         data = [rand(3,5), ones(3,1) * t, ones(3,1)];                
-%         lastData = data;
-%     else
-%         data = [lastData(:,1:5),ones(3,1)*t,ones(3,1)];
-%     end   
-%     
-%     
-% end
+function data = VzGetDat()
+    
+    updateInterValSecs = 0.05;
+
+    persistent startTime;
+    persistent t;
+    persistent lastTime;
+    persistent lastData;    
+    
+    if isempty(startTime)
+        startTime = tic;
+        lastTime = tic;
+    end
+    
+    t = toc(startTime);
+    if toc(lastTime) > updateInterValSecs || isempty(lastData)
+        lastTime = tic;
+        data = [rand(3,5), ones(3,1) * t, ones(3,1)];                
+        lastData = data;
+    else
+        data = [lastData(:,1:5),ones(3,1)*t,ones(3,1)];
+    end   
+    
+    
+end
