@@ -55,7 +55,8 @@ addlistener(hFrameSlider,'Value','PreSet',@frameSlider_preSet_cb);
 hFrameText = ...
     uicontrol(hFig, 'style', 'text', 'units', 'pixels', ...
     'position', [hBorder, vSliderBorder+height, fullWidth, height], ...
-    'string', 'Frame n/a of n/a | n/a of n/a s | n/a fps', 'horizontalAlignment', 'center');
+    'string', 'Frame n/a of n/a | n/a of n/a s | n/a fps', ...
+    'horizontalAlignment', 'center');
 hFrameText.Units = 'normalized';
 
 hPauseButton = ...
@@ -192,14 +193,26 @@ hAx.Units = 'normalized';
 hFig.Visible = 'on';
 
 
-% Loop over takes (only switches to next take when button pressed).
+
+% Note: There are two main loops here, the outer one just below, which
+% determines what data are used, and an inner one, which iterates over the
+% frames of the current data.
+%
+% The code in the outer loop is (re-)executed:
+%
+% - on startup and as long as no data has been loaded or recorded
+% - when a new file was loaded
+% - when the user selected a new take in the take dropdown menu
+% - when the streaming checkbox is checked or unchecked
+% - when the "restart recording" button was clicked (discard data so far)
 
 speedSelected = hSpeedMenu.Value;
 speed = speeds(speedSelected);
 
-while 1
+while 1    
     
     % when streaming disabled, reset where applicable
+    
     if hStreamCheckbox.UserData.wasUnchecked                
         hStreamCheckbox.UserData.wasUnchecked = 0;
         clearvars data;        
@@ -212,6 +225,7 @@ while 1
         
     % when streaming first enabled or restart of streaming requested, get
     % some sample data and construct data struct from that
+    
     if hStreamCheckbox.UserData.wasChecked || ...
             hStreamingDiscardButton.UserData.wasClicked
         % if restart requested and streaming pause on -> disable pause
@@ -254,6 +268,7 @@ while 1
     end
     
     % Load file
+    
     if hLoadButton.UserData.newFileLoaded
         hStreamCheckbox.Value = 0;        
         hLoadButton.UserData.newFileLoaded = 0;
@@ -266,7 +281,10 @@ while 1
         hTakeMenu.String = num2cell(1:size(data,2));
     end
         
+    % Calculations based on data only when data has been loaded or recorded
     if exist('data', 'var')
+        
+        % Store take and speed to be able to detect changes
         
         previousTake = take;
         previousSpeedSelected = speedSelected;
@@ -282,13 +300,13 @@ while 1
         T = relativeTimeStamps(frames, frameRate);                
         takeDuration = max(T);
         
-        % Set frame slider properties accordingly
+        % Set frame slider properties according to data
         
         hFrameSlider.Max = nFrames;
         hFrameSlider.SliderStep = [1/nFrames, 1/nFrames];
         
-        % Determine min and max, disregarding bad data and set axes limits
-        % accordingly.        
+        % Set axes limit to min and max values occurring in data
+        
         tmpFrames = frames;
         for i = 1:size(tmpFrames,3)
             bad = tmpFrames(:,7,i) ~= 1;
@@ -313,8 +331,20 @@ while 1
     hFrameSlider.UserData.setElapsedTime = 0;
     forceReplot = 0;
     rotationTic = tic;
-    tic
+    frameLoopAvgRoundTime = 0; 
+    frameLoopCounter = 0;
+    frameLoopRoundTime = nan;
+    tic    
+    
     while 1
+        
+        frameLoopTic = tic; % to measure loop round time
+        if frameLoopCounter > 0
+            frameLoopAvgRoundTime = ...
+                ((frameLoopAvgRoundTime * (frameLoopCounter-1)) + ...
+                frameLoopRoundTime) / frameLoopCounter;
+            frameLoopFps = 1/frameLoopAvgRoundTime;
+        end
         
         % Initialize plots if streaming was enabled or disabled or restart
         % of streaming take requested
@@ -383,6 +413,7 @@ while 1
         
         reload = 0; % flag used in frame loop to get back here
         
+        % skip bulk of this loop if no data loaded/recorded yet
         if exist('data', 'var')                        
             
             % If pause not active, increment elapsed time since last plot
@@ -401,8 +432,7 @@ while 1
                 hFrameSlider.Value = max(1,curFrame);
                 hFrameSlider.UserData.settingFromCode = 0;
             end
-            
-            
+                        
             % change frame number based on elapsed time
             [~, newFrame] = min(abs(T- tElapsed));            
             
@@ -427,6 +457,13 @@ while 1
                 num2str(nFrames), '  |  ', num2str(tElapsed), ' of ',...
                 num2str(takeDuration) ' s', ...
                 ' | ', num2str(frameRate), ' fps'];            
+            % add frame loop round time, as this constrains the possible
+            % frame rate at which data can be obtained from trackers (so
+            % low tracker fps may not be due to tracker restrictions)
+            if hStreamCheckbox.Value && ~hStreamingPauseButton.UserData.active
+                hFrameText.String = [hFrameText.String, ...
+                    ' (trackers queried @ ', num2str(frameLoopFps), 'fps)'];
+            end
             % roll around when take duration exceeded
             if tElapsed > T(end)
                 tElapsed = 0;
@@ -438,8 +475,8 @@ while 1
             if hTakeMenu.Value ~= previousTake
                 take = hTakeMenu.Value;
                 reload = 1;
-            end
-            
+            end                   
+       
             % if new speed selected, change speed
             if hSpeedMenu.Value ~= previousSpeedSelected
                 speed = speeds(hSpeedMenu.Value);
@@ -619,16 +656,19 @@ while 1
             
         end
         
-        drawnow
+        drawnow        
         
         % For changing take or loading new file
         if reload || hLoadButton.UserData.newFileLoaded
             delete(hAx.Children)
             break
-        end                
+        end    
+        
+        frameLoopCounter = frameLoopCounter + 1;
+        frameLoopRoundTime = toc(frameLoopTic);
         
     end
-    
+       
 end
 
 end
@@ -816,7 +856,10 @@ end
 %
 function data = VzGetDat()
     
-    updateInterValSecs = 0.05;
+    % Number of data changes per second (note that the round time of the
+    % MATLAB code of the visualizer will restrict the effective fps in any
+    % live-streaming setup).
+    desiredFps = 100;    
 
     persistent startTime;
     persistent t;
@@ -829,7 +872,7 @@ function data = VzGetDat()
     end
     
     t = toc(startTime);
-    if toc(lastTime) > updateInterValSecs || isempty(lastData)
+    if toc(lastTime) > 1/desiredFps || isempty(lastData)
         lastTime = tic;
         data = [rand(3,5), ones(3,1) * t, ones(3,1)];                
         lastData = data;
