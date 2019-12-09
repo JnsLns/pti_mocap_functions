@@ -529,6 +529,20 @@ while 1
                 end
             end
             
+            % PROTOTYPE based on above code (needs to be adjusted and
+            % linked to its own buttons            
+%             if hFitAxesCheckbox.Value || hFitAxesButton.UserData.clicked
+%                 hFitAxesButton.UserData.clicked = 0;
+%                 posTmp = frames(:,[3,4,5],1:curFrame);
+%                 posTmp(posTmp == 0) = nan;                                                
+%                 center = mean(mean(posTmp,1),3,'omitnan');
+%                 maxDist = ...
+%                     max(1, max(max(max(abs(posTmp - repmat(center,size(posTmp,1),1,size(posTmp,3)))))));
+%                 axLims = [center-(maxDist+maxDist*0.3); ...
+%                     center+(maxDist+maxDist*0.3)];
+%                 set(hAx, 'XLim', axLims(:,1), 'YLim', axLims(:,2), 'ZLim', axLims(:,3));                
+%             end
+            
             % Axes rotation
             if hRotateCheckbox.Value && ~hAx.UserData.buttonDown
                 if toc(rotationTic) > secsPerDegreeRotation
@@ -715,7 +729,8 @@ catch
         end
     end
     try
-    close(hFig);
+        error('An error occurred. Sorry.')
+        close(hFig);
     end 
 end
 
