@@ -1,9 +1,13 @@
 
 # Functions for motion capturing experiments using Phoenix Technologies Visualeyez VZ4000 trackers.
 
-This set of MATLAB functions allows dealing with data streamed into MATLAB from motion trackers via the VzGetDat function (available from Phoenix Technologies), including checks of data quality and computing pointer positions based on multiple markers mounted on a pointer device. 
+This set of MATLAB functions allows dealing with data streamed into MATLAB from motion trackers via the VzGetDat function (available from Phoenix Technologies), including checks of data quality and computing pointer positions based on multiple markers mounted on a pointer device. In addition, a visualizing tool allows plotting data live or from existing files.
 
 There is extensive documentation within each function file. Here's a quick overview:
+
+### Visualization
+
+* `vzpVisualizer` is a GUI-based tool that allows visualizing both pre-recorded tracking data (\*.vzp or \*.mat files) and data streamed live from the motion tracker system.
 
 ### Data quality
 
