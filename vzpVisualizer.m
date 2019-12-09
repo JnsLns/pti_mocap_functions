@@ -669,9 +669,6 @@ while 1
         end    
         
         frameLoopCounter = frameLoopCounter + 1;
-        if frameLoopCounter == 5
-            a(-1) = 0
-        end
         frameLoopRoundTime = toc(frameLoopTic);
         
     end
@@ -899,31 +896,30 @@ end
 
 % FOR DEBUGGING. Replaces PTI's VzGetDat and streams random data.
 %
-% function data = VzGetDat()
-%     
-%     % Number of data changes per second (note that the round time of the
-%     % MATLAB code of the visualizer will restrict the effective fps in any
-%     % live-streaming setup).
-%     desiredFps = 100;    
-% 
-%     persistent startTime;
-%     persistent t;
-%     persistent lastTime;
-%     persistent lastData;    
-%     
-%     if isempty(startTime)
-%         startTime = tic;
-%         lastTime = tic;
-%     end
-%     
-%     t = toc(startTime);
-%     if toc(lastTime) > 1/desiredFps || isempty(lastData)
-%         lastTime = tic;
-%         data = [rand(3,5), ones(3,1) * t, ones(3,1)];                
-%         lastData = data;
-%     else
-%         data = [lastData(:,1:5),ones(3,1)*t,ones(3,1)];
-%     end   
-%     
-%     
-% end
+function data = VzGetDat()
+
+    % Number of data changes per second (note that the round time of the
+    % MATLAB code of the visualizer will restrict the effective fps in any
+    % live-streaming setup).
+    desiredFps = 100;
+
+    persistent startTime;
+    persistent t;
+    persistent lastTime;
+    persistent lastData;
+
+    if isempty(startTime)
+        startTime = tic;
+        lastTime = tic;
+    end
+
+    t = toc(startTime);
+    if toc(lastTime) > 1/desiredFps || isempty(lastData)
+        lastTime = tic;
+        data = [rand(3,5), ones(3,1) * t, ones(3,1)];
+        lastData = data;
+    else
+        data = [lastData(:,1:5),ones(3,1)*t,ones(3,1)];
+    end
+
+end
