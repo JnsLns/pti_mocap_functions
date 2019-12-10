@@ -201,6 +201,13 @@ hFitAxesToTakeDataButton = ...
     ['Adjust axes limits to include all data points in the take ', ...
     ' (disregarding zero data)']);
 
+hExcludeOutliersCheckbox = ...
+    uicontrol(hFig, 'style', 'checkbox', 'units', 'pixels', ...
+    'position', uiPos(1,14,hBorder,vBorder), 'String', 'Omit outliers for fit', ...
+    'callback', @fitAxesToHistCheckbox_cb, 'tooltip', ...
+    ['When fitting axes limits to take or history data, use only absolute values ', ...
+    'below 99th percentile.']);
+
 hTakeMenu = ...
     uicontrol(hFig, 'style', 'popupmenu', 'units', 'pixels', ...
     'position', uiPos(1,16,hBorder,vBorder)./[1 1 3 1], ...
@@ -777,16 +784,22 @@ while 1
                         zHist = squeeze(frames(:,5,:))';
                     end                    
                     hFitAxesToHistButton.UserData.clicked = 0;                    
-                    hist = [xHist(:), yHist(:), zHist(:)];
-                    hist(hist==0) = nan;
-                    if size(hist,1) > 1 && all(sum(~isnan(hist))>1)                                                                        
+                    % Get history and exclude zeros
+                    hist = [xHist(:), yHist(:), zHist(:)];                                                            
+                    hist(hist==0) = nan;                    
+                    % If desired, use only values below 99th percentile    
+                    if hExcludeOutliersCheckbox.Value
+                        hist(abs(hist)>=repmat(prctile(hist,99), size(hist,1), 1)) = nan;
+                    end               
+                    % compute and apply axes limits
+                    if size(hist,1) > 1 && all(sum(~isnan(hist))>1)                                                                                                                                                                    
                         extrema = [min(hist); max(hist)];
                         span = diff(extrema);
-                        center = extrema(1,:) + span/2;                        
+                        center = extrema(1,:) + span/2;
                         maxSpan = max(span);
                         oneSide = (maxSpan/2 + maxSpan*0.025);
                         axLims = [center - oneSide; center + oneSide];
-                        set(hAx, 'XLim', axLims(:,1), 'YLim', axLims(:,2), 'ZLim', axLims(:,3));                                                
+                        set(hAx, 'XLim', axLims(:,1), 'YLim', axLims(:,2), 'ZLim', axLims(:,3));
                     end                                                                                                                                    
                 end
                 
