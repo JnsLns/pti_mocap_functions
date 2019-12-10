@@ -6,6 +6,8 @@ function vzpVisualizer()
 % Visualization tool for motion capture data from PTI motion trackers. No
 % arguments required. Allows streaming from trackers in realtime as well as
 % loading vzp or mat file (as obtained from function loadVzpFile).
+%
+% Note that MEX-files obtained from PTI are required (see startup message).
 
 % NOTE: To debug streaming without a tracker connection uncomment the
 % VzGetDat function replacement at the bottom of this file, which will
@@ -158,16 +160,37 @@ hRotateCheckbox = ...
     uicontrol(hFig, 'style', 'checkbox', 'units', 'pixels', ...
     'position', uiPos(1,7,hBorder,vBorder), 'String', 'Rotation');
 
-hFitAxesCheckbox = ...
+hFitAxesToMarkersCheckbox = ...
     uicontrol(hFig, 'style', 'checkbox', 'units', 'pixels', ...
-    'position', uiPos(1,8,hBorder,vBorder), 'String', 'Always fit axes ');
+    'position', uiPos(1,9,hBorder,vBorder), 'String', 'Always fit to frame ', ...
+    'callback', @fitAxesToMarkersCheckbox_cb, 'tag', 'fitToMarkersCheckbox', ...
+    'tooltip', ['Continuously adjust axes limits to show all marker ', ...
+    'positions in current frame (disregarding zero data)']);
 
-hFitAxesButton = ...
+hFitAxesToMarkersButton = ...
     uicontrol(hFig, 'style', 'pushbutton', 'units', 'pixels', ...
-    'position', uiPos(1,9,hBorder,vBorder), ...
-    'string', 'Fit axes to data', 'UserData', struct('clicked', 0), ...
-    'callback', @fitAxes_cb);
+    'position', uiPos(1,10,hBorder,vBorder), ...
+    'string', 'Fit axes to frame', 'UserData', struct('clicked', 0), ...
+    'callback', @fitAxesToMarkersButton_cb, 'tooltip', ...
+    ['Adjust axes limits to show all marker ', ...
+    'positions in current frame (disregarding zero data)']);
 
+hFitAxesToHistCheckbox = ...
+    uicontrol(hFig, 'style', 'checkbox', 'units', 'pixels', ...
+    'position', uiPos(1,11,hBorder,vBorder), 'String', 'Always fit to history', ...
+    'callback', @fitAxesToHistCheckbox_cb, 'tag', 'fitToHistCheckbox', ...
+    'tooltip', ...
+    ['Continuously adjust axes limits to show data in all history frames ', ...
+    ' (disregarding zero data)']);
+
+hFitAxesToHistButton = ...
+    uicontrol(hFig, 'style', 'pushbutton', 'units', 'pixels', ...
+    'position', uiPos(1,12,hBorder,vBorder), ...
+    'string', 'Fit axes to history', 'UserData', struct('clicked', 0), ...
+    'callback', @fitAxesToHistButton_cb, ...
+    'tooltip', ...
+    ['Adjust axes limits to show data in all history frames ', ...
+    ' (disregarding zero data)']);
 
 hTakeMenu = ...
     uicontrol(hFig, 'style', 'popupmenu', 'units', 'pixels', ...
@@ -576,8 +599,9 @@ while 1
             % extension based on data span, plus 10 percent, identical for all
             % axes (i.e., always based on largest data span on any axis).
             % Disregard zero data.
-            if hFitAxesCheckbox.Value || hFitAxesButton.UserData.clicked
-                hFitAxesButton.UserData.clicked = 0;
+            if hFitAxesToMarkersCheckbox.Value || ...
+                    hFitAxesToMarkersButton.UserData.clicked
+                hFitAxesToMarkersButton.UserData.clicked = 0;
                 posTmp = frames(:,[3,4,5],curFrame);
                 posTmp = posTmp(~all(posTmp==0,2),:);
                 if ~isempty(posTmp)
@@ -590,19 +614,11 @@ while 1
                 end
             end
             
-            % PROTOTYPE based on above code (needs to be adjusted and
-            % linked to its own buttons            
-%             if hFitAxesCheckbox.Value || hFitAxesButton.UserData.clicked
-%                 hFitAxesButton.UserData.clicked = 0;
-%                 posTmp = frames(:,[3,4,5],1:curFrame);
-%                 posTmp(posTmp == 0) = nan;                                                
-%                 center = mean(mean(posTmp,1),3,'omitnan');
-%                 maxDist = ...
-%                     max(1, max(max(max(abs(posTmp - repmat(center,size(posTmp,1),1,size(posTmp,3)))))));
-%                 axLims = [center-(maxDist+maxDist*0.3); ...
-%                     center+(maxDist+maxDist*0.3)];
-%                 set(hAx, 'XLim', axLims(:,1), 'YLim', axLims(:,2), 'ZLim', axLims(:,3));                
-%             end
+            % zoom to history (this is done in the frame loop as history
+            % frames are needed)
+            if hFitAxesToHistButton.UserData.clicked
+                forceReplot = 1;                
+            end            
             
             % Axes rotation
             if hRotateCheckbox.Value && ~hAx.UserData.buttonDown
@@ -665,7 +681,7 @@ while 1
                 histFrames = frames(:,:,max(1,curFrame-histLen):curFrame);
                 xHist = squeeze(histFrames(:,3,:))';
                 yHist = squeeze(histFrames(:,4,:))';
-                zHist = squeeze(histFrames(:,5,:))';
+                zHist = squeeze(histFrames(:,5,:))';                
                 
                 % Initialize dots (current marker positions)
                 
@@ -753,7 +769,23 @@ while 1
                     hLabels(numLine).Position = ...
                         [x(numLine) y(numLine) z(numLine)]; 
                 end                                
-                                                
+                
+                % fit axes limits to extent of history data if desired
+                if hFitAxesToHistCheckbox.Value || hFitAxesToHistButton.UserData.clicked
+                    hFitAxesToHistButton.UserData.clicked = 0;                    
+                    hist = [xHist(:), yHist(:), zHist(:)];
+                    hist(hist==0) = nan;
+                    if size(hist,1) > 1 && all(sum(~isnan(hist))>1)                                                                        
+                        extrema = [min(hist); max(hist)];
+                        span = diff(extrema);
+                        center = extrema(1,:) + span/2;                        
+                        maxSpan = max(span);
+                        oneSide = (maxSpan/2 + maxSpan*0.1);
+                        axLims = [center - oneSide; center + oneSide];
+                        set(hAx, 'XLim', axLims(:,1), 'YLim', axLims(:,2), 'ZLim', axLims(:,3));                                                
+                    end                                                                                                                                    
+                end
+                
                 previousFrame = curFrame;
                 
             end                                
@@ -867,7 +899,21 @@ function hAx_ButtonDownFcn(h,~)
 h.UserData.buttonDown = 1;
 end
 
-function fitAxes_cb(h,~)
+function fitAxesToMarkersButton_cb(h,~)
+h.UserData.clicked = 1;
+end
+
+function fitAxesToMarkersCheckbox_cb(h,~)
+hcb = findobj(h.Parent, 'tag', 'fitToHistCheckbox');
+hcb.Value = 0;
+end
+
+function fitAxesToHistCheckbox_cb(h,~)
+mcb = findobj(h.Parent, 'tag', 'fitToMarkersCheckbox');
+mcb.Value = 0;
+end
+
+function fitAxesToHistButton_cb(h,~)
 h.UserData.clicked = 1;
 end
 
