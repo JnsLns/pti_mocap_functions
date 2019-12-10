@@ -192,6 +192,15 @@ hFitAxesToHistButton = ...
     ['Adjust axes limits to show data in all history frames ', ...
     ' (disregarding zero data)']);
 
+hFitAxesToTakeDataButton = ...
+    uicontrol(hFig, 'style', 'pushbutton', 'units', 'pixels', ...
+    'position', uiPos(1,13,hBorder,vBorder), ...
+    'string', 'Fit axes to all data in take', 'UserData', struct('clicked', 0), ...
+    'callback', @fitAxesToTakeDataButton_cb, ...
+    'tooltip', ...
+    ['Adjust axes limits to include all data points in the take ', ...
+    ' (disregarding zero data)']);
+
 hTakeMenu = ...
     uicontrol(hFig, 'style', 'popupmenu', 'units', 'pixels', ...
     'position', uiPos(1,16,hBorder,vBorder)./[1 1 3 1], ...
@@ -399,22 +408,9 @@ while 1
         hFrameSlider.Max = nFrames;
         hFrameSlider.SliderStep = [1/nFrames, 1/nFrames];
         
-        % Set axes limit to min and max values occurring in data
-        
-        tmpFrames = frames;
-        if size(tmpFrames,2) == 7 % streamed data has no data quality column
-            for i = 1:size(tmpFrames,3)
-                bad = tmpFrames(:,7,i) ~= 1;
-                tmpFrames(bad,:,i) = nan;
-            end
-        end
-        tmpFrames = tmpFrames(:,[3,4,5],:);
-        tmpFrames = tmpFrames(:);
-        minVal = min(tmpFrames);
-        maxVal = max(tmpFrames);        
-        set(hAx, 'XLim', [minVal maxVal],...
-            'YLim', [minVal maxVal], 'ZLim', [minVal maxVal]);                                      
-        
+        % Set axes limit based on take data extent (happens in frame loop)
+        hFitAxesToTakeDataButton.UserData.clicked = 1;
+                                                    
     end
     
     % Iterate over frames
@@ -595,10 +591,8 @@ while 1
             end
             hHistLenEdit.String = num2str(histLen);            
             
-            % zoom to data if button clicked (onto median of data with axes
-            % extension based on data span, plus 10 percent, identical for all
-            % axes (i.e., always based on largest data span on any axis).
-            % Disregard zero data.
+            % zoom to data if button clicked (onto mean of data with axes
+            % extension based on data span.
             if hFitAxesToMarkersCheckbox.Value || ...
                     hFitAxesToMarkersButton.UserData.clicked
                 hFitAxesToMarkersButton.UserData.clicked = 0;
@@ -608,15 +602,16 @@ while 1
                     center = mean(posTmp,1);
                     maxDist = ...
                         max(1, max(max(abs(posTmp - repmat(center,size(posTmp,1),1)))));
-                    axLims = [center-(maxDist+maxDist*0.3); ...
-                        center+(maxDist+maxDist*0.3)];
+                    axLims = [center-(maxDist+maxDist*0.1); ...
+                        center+(maxDist+maxDist*0.1)];
                     set(hAx, 'XLim', axLims(:,1), 'YLim', axLims(:,2), 'ZLim', axLims(:,3));
                 end
             end
             
-            % zoom to history (this is done in the frame loop as history
-            % frames are needed)
-            if hFitAxesToHistButton.UserData.clicked
+            % zoom to history or all data (this is done in the frame loop
+            % as the history frames are needed which are computed there)
+            if hFitAxesToHistButton.UserData.clicked || ...
+               hFitAxesToTakeDataButton.UserData.clicked
                 forceReplot = 1;                
             end            
             
@@ -771,7 +766,16 @@ while 1
                 end                                
                 
                 % fit axes limits to extent of history data if desired
-                if hFitAxesToHistCheckbox.Value || hFitAxesToHistButton.UserData.clicked
+                if hFitAxesToHistCheckbox.Value || ...
+                        hFitAxesToHistButton.UserData.clicked || ...
+                        hFitAxesToTakeDataButton.UserData.clicked
+                    % if fit to all data requested, use all data, not hist
+                    if hFitAxesToTakeDataButton.UserData.clicked                        
+                        hFitAxesToTakeDataButton.UserData.clicked = 0;
+                        xHist = squeeze(frames(:,3,:))';
+                        yHist = squeeze(frames(:,4,:))';
+                        zHist = squeeze(frames(:,5,:))';
+                    end                    
                     hFitAxesToHistButton.UserData.clicked = 0;                    
                     hist = [xHist(:), yHist(:), zHist(:)];
                     hist(hist==0) = nan;
@@ -780,7 +784,7 @@ while 1
                         span = diff(extrema);
                         center = extrema(1,:) + span/2;                        
                         maxSpan = max(span);
-                        oneSide = (maxSpan/2 + maxSpan*0.1);
+                        oneSide = (maxSpan/2 + maxSpan*0.025);
                         axLims = [center - oneSide; center + oneSide];
                         set(hAx, 'XLim', axLims(:,1), 'YLim', axLims(:,2), 'ZLim', axLims(:,3));                                                
                     end                                                                                                                                    
@@ -914,6 +918,10 @@ mcb.Value = 0;
 end
 
 function fitAxesToHistButton_cb(h,~)
+h.UserData.clicked = 1;
+end
+
+function fitAxesToTakeDataButton_cb(h,~)
 h.UserData.clicked = 1;
 end
 
