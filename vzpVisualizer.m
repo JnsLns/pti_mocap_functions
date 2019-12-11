@@ -15,7 +15,10 @@ function vzpVisualizer()
 
 
 % TODO: MATLAB ROUND TIME DOES NOT MAKE SENSE!!!
-
+% TODO: Clearvars when streaming unchecked necessary?
+% TODO: getDat... use maxWait and do not update data if exceeded (special
+% treatment might be needed for moment where streaming is first enabled and
+% vzsoft is not active).
 
 % Set up GUI etc.
 
@@ -215,7 +218,7 @@ hExcludeOutliersCheckbox = ...
 hTakeMenu = ...
     uicontrol(hFig, 'style', 'popupmenu', 'units', 'pixels', ...
     'position', uiPos(1,16,hBorder,vBorder)./[1 1 3 1], ...
-    'string', ' ');
+    'string', ' ', 'tag', 'takeMenu');
 
 hTakeText = ...
     uicontrol(hFig, 'style', 'text', 'units', 'pixels', ...
@@ -227,7 +230,8 @@ hLoadButton = ...
     'position', uiPos(1,17,hBorder,vBorder), ...
     'string', 'Load data file', 'callback', @load_cb, 'tooltip', ...
     ['Load *.vzp or *.mat file (the latter must contain data ', ...
-    'in the format returned by loadVzpFile()).']);
+    'in the format returned by loadVzpFile()).'], 'tag', ...
+    'loadButton');
 hLoadButton.UserData.data = [];
 hLoadButton.UserData.newFileLoaded = 0;
 
@@ -329,12 +333,7 @@ while 1
     
     if hStreamCheckbox.UserData.wasUnchecked                
         hStreamCheckbox.UserData.wasUnchecked = 0;
-        clearvars data;        
-        hSpeedMenu.Enable = 'on';                        
-        hTakeMenu.Enable = 'on';
-        hFrameSlider.Enable = 'on';                        
-        hPauseButton.Enable = 'on';        
-        hLoadButton.Enable = 'on';         
+        clearvars data;              
     end
         
     % when streaming first enabled or restart of streaming requested, get
@@ -976,21 +975,34 @@ end
 
 h.UserData.wasChecked = h.Value;
 h.UserData.wasUnchecked = ~h.Value;    
+
 sub = findobj(h.Parent,'tag','StreamingUpdateButton');
 spb = findobj(h.Parent,'tag','StreamingPauseButton');
 sdb = findobj(h.Parent,'tag','StreamingDiscardButton');
 ssb = findobj(h.Parent,'tag','hSaveStreamingButton');
-if h.Value
+spm = findobj(h.Parent,'tag','speedMenu');
+tkm = findobj(h.Parent,'tag','takeMenu');
+fsd = findobj(h.Parent,'tag','frameSlider');
+pbn = findobj(h.Parent,'tag','pauseButton');
+lbn = findobj(h.Parent,'tag','loadButton');
+
+if h.UserData.wasChecked
     sub.Enable = 'off';
     spb.Enable = 'on';
     sdb.Enable = 'on';
     ssb.Enable = 'on';
-else
+elseif h.UserData.wasUnchecked
     sub.Enable = 'off';
     spb.Enable = 'off';
     sdb.Enable = 'off';
-    ssb.Enable = 'off';
-end
+    ssb.Enable = 'off';    
+    spm.Enable = 'on';
+    tkm.Enable = 'on';
+    fsd.Enable = 'on';
+    pbn.Enable = 'on';
+    lbn.Enable = 'on';    
+end   
+
 end
 
 function pause_cb(h, ~)
@@ -1112,30 +1124,30 @@ end
 
 % FOR DEBUGGING. Replaces PTI's VzGetDat and streams random data.
 %
-% function data = VzGetDat()
-% 
-%     % Number of data changes per second (note that the round time of the
-%     % MATLAB code of the visualizer will restrict the effective fps in any
-%     % live-streaming setup).
-%     desiredFps = 100;
-% 
-%     persistent startTime;
-%     persistent t;
-%     persistent lastTime;
-%     persistent lastData;
-% 
-%     if isempty(startTime)
-%         startTime = tic;
-%         lastTime = tic;
-%     end
-% 
-%     t = toc(startTime);
-%     if toc(lastTime) > 1/desiredFps || isempty(lastData)
-%         lastTime = tic;
-%         data = [rand(3,5), ones(3,1) * t, ones(3,1)];
-%         lastData = data;
-%     else
-%         data = [lastData(:,1:5),ones(3,1)*t,ones(3,1)];
-%     end
-% 
-% end
+function data = VzGetDat()
+
+    % Number of data changes per second (note that the round time of the
+    % MATLAB code of the visualizer will restrict the effective fps in any
+    % live-streaming setup).
+    desiredFps = 100;
+
+    persistent startTime;
+    persistent t;
+    persistent lastTime;
+    persistent lastData;
+
+    if isempty(startTime)
+        startTime = tic;
+        lastTime = tic;
+    end
+
+    t = toc(startTime);
+    if toc(lastTime) > 1/desiredFps || isempty(lastData)
+        lastTime = tic;
+        data = [rand(3,5), ones(3,1) * t, ones(3,1)];
+        lastData = data;
+    else
+        data = [lastData(:,1:5),ones(3,1)*t,ones(3,1)];
+    end
+
+end
