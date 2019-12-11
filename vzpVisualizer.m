@@ -13,12 +13,12 @@ function vzpVisualizer()
 % VzGetDat function replacement at the bottom of this file, which will
 % "stream" random data points.
 
-
-% TODO: MATLAB ROUND TIME DOES NOT MAKE SENSE!!!
-% TODO: Clearvars when streaming unchecked necessary?
 % TODO: getDat... use maxWait and do not update data if exceeded (special
 % treatment might be needed for moment where streaming is first enabled and
 % vzsoft is not active). 
+% TODO: Make figure user data and store there things like speed, speeds,
+% take etc. to make it accessible to callbacks. Then move all logic
+% including these to callbacks.
 
 % Set up GUI etc.
 
@@ -325,17 +325,10 @@ try
 
 speedSelected = hSpeedMenu.Value;
 speed = speeds(speedSelected);
-streamingModeActive = 0;
+dataIsStreamedData = 0;
 
 while 1    
-    
-    % when streaming disabled, reset where applicable
-    
-    if hStreamCheckbox.UserData.wasUnchecked                
-        hStreamCheckbox.UserData.wasUnchecked = 0;
-        clearvars data;              
-    end
-       
+           
     % request to restart online streaming 
     
     if hStreamingDiscardButton.UserData.wasClicked
@@ -352,44 +345,70 @@ while 1
         % if streaming pause active -> disable 
         if hStreamingPauseButton.UserData.active == 1            
             streamingPause_cb(hStreamingPauseButton); 
+            streamingPauseWasActive = 1;
+        else
+            streamingPauseWasActive = 0;
         end
         
         % reset click state of and checkbox        
-        hStreamCheckbox.UserData.wasChecked = 0;
-        
-        % reset variable to which data will be recorded
-        data = struct();
+        hStreamCheckbox.UserData.wasChecked = 0;        
         
         % Get some sample data (one sec, but at least five frames)                
         f = 0; sampleTime = 1; sampleStart = tic;
         tmpDat = [];
         while toc(sampleStart) < sampleTime || size(tmpDat,3) < 5 
             f = f + 1;
-            tmpDat(:,:,f) = getDat();
+            [tmpDat(:,:,f), waitTimeExc] = getDat(3);
+            if waitTimeExc
+                break;
+            end
         end         
         
-        % compute needed values from sample data
-        data(1).nFrames = f;                
-        data(1).frameRate = f/sampleTime;                               
-        data(1).nMarkers = size(tmpDat,1);        
-        data(1).markerNames = cellstr(num2str(tmpDat(:,1:2,1)));
-        data(1).markerIDs = tmpDat(:,1:2,1);
-        data(1).crf = nan;
+        if waitTimeExc % streaming failed
+            
+            msgbox(['Data obtained from trackers is static. Maybe ', ...
+                'data capture is inactive in VzSoft? I will stop ', ...
+                'streaming for now.']);
         
-        % Set some UI variables                       
-        take = 1;
-        speed = 1;                      
-        hSpeedMenu.Value = find((speeds == 1));        
+            % if streaming pause was active before -> re-enable
+            % else (=streaming was not active at all) -> disable streaming
+            if streamingPauseWasActive
+                streamingPause_cb(hStreamingPauseButton);
+            else
+                hStreamCheckbox.Value = 0;
+                streamCheckbox_cb(hStreamCheckbox,[]);
+            end                                    
+            
+        else
+            
+            dataIsStreamedData = 1;
+            
+            % reset variable to which data will be recorded
+            data = struct();
+            
+            % compute needed values from sample data
+            data(1).nFrames = f;
+            data(1).frameRate = f/sampleTime;
+            data(1).nMarkers = size(tmpDat,1);
+            data(1).markerNames = cellstr(num2str(tmpDat(:,1:2,1)));
+            data(1).markerIDs = tmpDat(:,1:2,1);
+            data(1).crf = nan;
+            
+            % Set some UI variables
+            take = 1;
+            speed = 1;
+            hSpeedMenu.Value = find((speeds == 1));
+            
+            % First few data points
+            data(1).frames(:,:,1:5) = tmpDat(:,:,1:5);
         
-        % First few data points
-        data(1).frames(:,:,1:5) = tmpDat(:,:,1:5);        
+        end
         
     end
     
     % Load file
     
-    if hLoadButton.UserData.newFileLoaded
-        hStreamCheckbox.Value = 0;        
+    if hLoadButton.UserData.newFileLoaded             
         hLoadButton.UserData.newFileLoaded = 0;
         data = hLoadButton.UserData.data.data;
         take = 1;
@@ -398,6 +417,7 @@ while 1
         hFrameSlider.Value = 1;
         hFrameSlider.SliderStep = [1/data(1).nFrames 1/data(1).nFrames];        
         hTakeMenu.String = num2cell(1:size(data,2));
+        dataIsStreamedData = 0;
     end
         
     % Calculations based on data only when data has been loaded or recorded
@@ -415,7 +435,9 @@ while 1
         frameRate = data(take).frameRate;
         nMarkers = data(take).nMarkers;
         lastGoodPos = nan(nMarkers, 3);
+        
         % Get time stamps relative to first frame
+        
         T = relativeTimeStamps(frames, frameRate);                
         takeDuration = max(T);
         
@@ -440,32 +462,27 @@ while 1
     forceReplot = 0;
     rotationTic = tic;
     frameLoopAvgRoundTime = 0; 
-    frameLoopCounter = 0;
     frameLoopRoundTime = nan;
     tic    
     
-    while 1                
+    if dataIsStreamedData
+        hSaveStreamingButton.Enable = 'on';
+    else
+        hSaveStreamingButton.Enable = 'off';
+    end
+    
+    while 1                        
         
-        frameLoopTic = tic; % to measure loop round time
-        if frameLoopCounter > 0
-            frameLoopAvgRoundTime = ...
-                ((frameLoopAvgRoundTime * (frameLoopCounter-1)) + ...
-                frameLoopRoundTime) / frameLoopCounter;
-            frameLoopFps = 1/frameLoopAvgRoundTime;
-        end
-        
-        % Initialize plots if streaming was enabled or disabled or restart
+        % Initialize plots if streaming was enabled or restart
         % of streaming take requested
-        if hStreamCheckbox.UserData.wasChecked || ...
-           hStreamCheckbox.UserData.wasUnchecked || ...
-           hStreamingDiscardButton.UserData.wasClicked
+        if hStreamCheckbox.UserData.wasChecked || ...           
+           hStreamingDiscardButton.UserData.wasClicked                             
            delete(hAx.Children)    
            break;
         end
                 
         % in case streaming is active
         if hStreamCheckbox.Value              
-            streamingModeActive = 1;
             % Get frame from trackers (record even when paused)                        
             data(1).frames(:,:,end+1) = getDat();            
             data(1).nFrames = size(data(1).frames,3);                                           
@@ -499,8 +516,6 @@ while 1
                 speed = oldSpeed;
                 hSpeedMenu.Value = oldSpeedMenuValue;            
             end           
-        else
-            streamingModeActive = 0;
         end                
                 
         % Saving streamed data
@@ -513,7 +528,7 @@ while 1
         
         % For quitters
         if hQuitButton.UserData.wantQuit           
-            if streamingModeActive
+            if dataIsStreamedData
                 resp = ...
                     questdlg(['Save streamed data to file before quitting?'], ...
                     'Save data', 'Yes', 'No', 'Yes');
@@ -571,13 +586,7 @@ while 1
                 num2str(nFrames), '  |  ', num2str(tElapsed), ' of ',...
                 num2str(takeDuration) ' s', ...
                 ' | ', num2str(frameRate), ' fps'];            
-            % add frame loop round time, as this constrains the possible
-            % frame rate at which data can be obtained from trackers (so
-            % low tracker fps may not be due to tracker restrictions)
-            if hStreamCheckbox.Value && ~hStreamingPauseButton.UserData.active
-                hFrameText.String = [hFrameText.String, ...
-                    ' (trackers queried @ ', num2str(frameLoopFps), 'fps)'];
-            end
+
             % roll around when take duration exceeded
             if tElapsed > T(end)
                 tElapsed = 0;
@@ -824,10 +833,7 @@ while 1
         if reload || hLoadButton.UserData.newFileLoaded
             delete(hAx.Children)
             break
-        end    
-        
-        frameLoopCounter = frameLoopCounter + 1;
-        frameLoopRoundTime = toc(frameLoopTic);
+        end            
         
     end
        
@@ -837,7 +843,7 @@ end
 % in case an error occurs and streaming mode is running, allow user to save
 % data before closing.
 catch
-    if streamingModeActive
+    if dataIsStreamedData
         resp = ...
         questdlg(['Something went wrong or you closed the window instead ', ...
             'of hitting quit. Would you like to save ', ...
@@ -985,7 +991,6 @@ h.UserData.wasUnchecked = ~h.Value;
 sub = findobj(h.Parent,'tag','StreamingUpdateButton');
 spb = findobj(h.Parent,'tag','StreamingPauseButton');
 sdb = findobj(h.Parent,'tag','StreamingDiscardButton');
-ssb = findobj(h.Parent,'tag','hSaveStreamingButton');
 spm = findobj(h.Parent,'tag','speedMenu');
 tkm = findobj(h.Parent,'tag','takeMenu');
 fsd = findobj(h.Parent,'tag','frameSlider');
@@ -995,8 +1000,7 @@ lbn = findobj(h.Parent,'tag','loadButton');
 if h.UserData.wasChecked
     sub.Enable = 'off';
     spb.Enable = 'on';
-    sdb.Enable = 'on';
-    ssb.Enable = 'on';    
+    sdb.Enable = 'on';    
     spm.Enable = 'off';
     tkm.Value = 1;    
     tkm.String = {1};
@@ -1009,8 +1013,7 @@ if h.UserData.wasChecked
 elseif h.UserData.wasUnchecked
     sub.Enable = 'off';
     spb.Enable = 'off';
-    sdb.Enable = 'off';
-    ssb.Enable = 'off';    
+    sdb.Enable = 'off';    
     spm.Enable = 'on';
     tkm.Enable = 'on';
     fsd.Enable = 'on';
