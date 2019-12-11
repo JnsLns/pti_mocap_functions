@@ -13,12 +13,9 @@ function vzpVisualizer()
 % VzGetDat function replacement at the bottom of this file, which will
 % "stream" random data points.
 
-% TODO: getDat... use maxWait and do not update data if exceeded (special
-% treatment might be needed for moment where streaming is first enabled and
-% vzsoft is not active). 
 % TODO: Make figure user data and store there things like speed, speeds,
 % take etc. to make it accessible to callbacks. Then move all logic
-% including these to callbacks.
+% including these to callbacks. This should tidy up this code.
 
 % Set up GUI etc.
 
@@ -26,6 +23,9 @@ secsPerDegreeRotation = 0.01; % rotation speed
 histLen = 500; % initial history length in frames (plotted lines)
 speeds = [0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 4, 8, 16, 32];
 markerBaseLineWidth = 0.5;
+waitSecsForBufferUpdate = 0.1; % how long to wait for buffer update when
+                               % getting data. After that the old data is
+                               % returned. (and a flag is set).
 
 % Check existence of PTI functions required for streaming and loading vzp
 % files. Warn if not existent.
@@ -134,8 +134,8 @@ hFrameText = ...
 hPauseButton = ...
     uicontrol(hFig, 'style', 'pushbutton', 'units', 'pixels', ...
     'position', uiPos(1,1,hBorder,vSliderBorder+height+sep), ...
-    'string', 'Pause playback', 'callback', @pause_cb, 'UserData', 0, 'tag', ...
-    'pauseButton');
+    'string', 'Pause', 'callback', @pause_cb, 'UserData', 0, 'tag', ...
+    'pauseButton', 'Enable', 'off');
 
 hHistLenEdit = ...
     uicontrol(hFig, 'style', 'edit', 'units', 'pixels', ...
@@ -294,6 +294,18 @@ ylabel('y')
 zlabel('z')
 hold on
 
+% Warning text for static data
+axc = hAx.Position(1:2)+hAx.Position(3:4)./2;
+txtWidth = 300;
+txtHeight = 30;
+hIdenticalDataText = ...
+    uicontrol('style', 'text', 'string', ['Warning: Recorded streaming data ', ...
+    'is unchanging. Capture process not running in VZSoft?'],...
+    'position', ...
+    [axc(1)-txtWidth/2, axc(2)-txtHeight/2, txtWidth, txtHeight], ...
+    'foregroundcolor', 'r', 'visible', 'off', ...
+    'tag', 'identicalDataText', 'backgroundColor', 'k');
+
 % UI data table
 tXpos = hAx.Position(1)+hAx.Position(3)-150;
 tYpos = vBorder;
@@ -308,6 +320,7 @@ hDataTable = uitable(hFig,'Data',nan(7,7), 'units', 'pixels', ...
 hDataTable.Units = 'normalized';                
 hAx.Units = 'normalized';                               
 hFig.Visible = 'on';
+hIdenticalDataText.Units = 'Normalized';
 
 try
 
@@ -340,8 +353,8 @@ while 1
     % when streaming first enabled or restart of streaming requested, get
     % some sample data and construct data struct from that
     
-    if hStreamCheckbox.UserData.wasChecked 
-                    
+    if hStreamCheckbox.UserData.wasChecked                        
+        
         % if streaming pause active -> disable 
         if hStreamingPauseButton.UserData.active == 1            
             streamingPause_cb(hStreamingPauseButton); 
@@ -358,17 +371,18 @@ while 1
         tmpDat = [];
         while toc(sampleStart) < sampleTime || size(tmpDat,3) < 5 
             f = f + 1;
-            [tmpDat(:,:,f), waitTimeExc] = getDat(3);
-            if waitTimeExc
+            [tmpDat(:,:,f), waitSecsForBufferUpdateExc] = getDat(3);
+            % if data is static (VzSoft not capturing?), cancel streaming
+            if waitSecsForBufferUpdateExc
                 break;
             end
         end         
         
-        if waitTimeExc % streaming failed
+        if waitSecsForBufferUpdateExc % streaming failed
             
-            msgbox(['Data obtained from trackers is static. Maybe ', ...
-                'data capture is inactive in VzSoft? I will stop ', ...
-                'streaming for now.']);
+            msgbox(['Data obtained from trackers is not changing. Maybe ', ...
+                'data capture is inactive in VzSoft? I stopped ', ...
+                'streaming for now.'],'Static data');
         
             % if streaming pause was active before -> re-enable
             % else (=streaming was not active at all) -> disable streaming
@@ -461,15 +475,27 @@ while 1
     hFrameSlider.UserData.setElapsedTime = 0;
     forceReplot = 0;
     rotationTic = tic;
-    frameLoopAvgRoundTime = 0; 
-    frameLoopRoundTime = nan;
     tic    
     
+    % Stream data saving only when streamed data present
     if dataIsStreamedData
         hSaveStreamingButton.Enable = 'on';
     else
         hSaveStreamingButton.Enable = 'off';
     end
+    
+    % Make sure pause button not operable when no data present,
+    % otherwise set correct string.
+    if ~exist('data', 'var') || isempty(data)            
+        hPauseButton.Enable = 'off';        
+    else
+        if hPauseButton.UserData == 1
+            hPauseButton.String = 'Play';
+        elseif hPauseButton.UserData == 0
+            hPauseButton.String = 'Pause';
+        end
+    end
+    
     
     while 1                        
         
@@ -483,8 +509,22 @@ while 1
                 
         % in case streaming is active
         if hStreamCheckbox.Value              
-            % Get frame from trackers (record even when paused)                        
-            data(1).frames(:,:,end+1) = getDat();            
+            % Get frame from trackers (record even when paused) BUT                                   
+            % if no new data within wait time, a frame will be obtained
+            % anyway, but it will not differ from before (even the time
+            % stamps may be identical). If so, replace timestamps
+            % artificially and warn. This is just so the script can't get
+            % stuck due to bufferUpdateCheck within getDat().
+            [obtainedFrame, waitSecsForBufferUpdateExc] = getDat(waitSecsForBufferUpdate);                        
+            if ~waitSecsForBufferUpdateExc                
+                data(1).frames(:,:,end+1) = obtainedFrame;
+                hIdenticalDataText.Visible = 'off';
+            else
+                obtainedFrame(:,7,:) = nan; % bad data will be nan
+                obtainedFrame(:,6,:) = data(1).frames(:,6,end)+waitSecsForBufferUpdate;                                 
+                data(1).frames(:,:,end+1) = obtainedFrame;
+                hIdenticalDataText.Visible = 'on';
+            end                
             data(1).nFrames = size(data(1).frames,3);                                           
             % If live plot is not paused or update button was pressed.
             % Update plotting variables / UI with new data, update time to
@@ -910,6 +950,7 @@ end
 if ~loadError
     h.UserData.data = data;
     h.UserData.newFileLoaded = 1;    
+    set(findobj(h.Parent, 'tag', 'pauseButton'), 'enable', 'on');
     disp('Done')
 else    
     h.UserData.newFileLoaded = 0;    
@@ -996,6 +1037,7 @@ tkm = findobj(h.Parent,'tag','takeMenu');
 fsd = findobj(h.Parent,'tag','frameSlider');
 pbn = findobj(h.Parent,'tag','pauseButton');
 lbn = findobj(h.Parent,'tag','loadButton');
+idt = findobj(h.Parent.Parent,'tag','identicalDataText');
 
 if h.UserData.wasChecked
     sub.Enable = 'off';
@@ -1018,7 +1060,8 @@ elseif h.UserData.wasUnchecked
     tkm.Enable = 'on';
     fsd.Enable = 'on';
     pbn.Enable = 'on';
-    lbn.Enable = 'on';    
+    lbn.Enable = 'on';  
+    idt.Visible = 'off';
 end   
 
 end
@@ -1026,10 +1069,10 @@ end
 function pause_cb(h, ~)
 if h.UserData == 1
     h.UserData = 0;
-    h.String = 'Pause playback';
+    h.String = 'Pause';
 elseif h.UserData == 0
     h.UserData = 1;
-    h.String = 'Resume playback';
+    h.String = 'Play';
 end
 end
 
@@ -1128,44 +1171,63 @@ while 1
     % check for buffer update, return if ok
     if bufferUpdateCheck(tmpDat)        
         maxWaitExc = 0;
-        data = tmpDat;                
         break;
     end
     % wait time exceeded
     if toc(tStart) > maxWait
-        maxWaitExc = 1;
-        return
+        maxWaitExc = 1;        
+        break
     end
 end
+
+data = tmpDat;
 
 end
 
 % FOR DEBUGGING. Replaces PTI's VzGetDat and streams random data.
 %
-function data = VzGetDat()
-
-    % Number of data changes per second (note that the round time of the
-    % MATLAB code of the visualizer will restrict the effective fps in any
-    % live-streaming setup).
-    desiredFps = 100;
-
-    persistent startTime;
-    persistent t;
-    persistent lastTime;
-    persistent lastData;
-
-    if isempty(startTime)
-        startTime = tic;
-        lastTime = tic;
-    end
-
-    t = toc(startTime);
-    if toc(lastTime) > 1/desiredFps || isempty(lastData)
-        lastTime = tic;
-        data = [rand(3,5), ones(3,1) * t, ones(3,1)];
-        lastData = data;
-    else
-        data = [lastData(:,1:5),ones(3,1)*t,ones(3,1)];
-    end
-
-end
+% function data = VzGetDat()
+% 
+%     % Number of data changes per second (note that the round time of the
+%     % MATLAB code of the visualizer will restrict the effective fps in any
+%     % live-streaming setup).
+%     desiredFps = 100;
+% 
+%     persistent startTime;
+%     persistent t;
+%     persistent lastTime;
+%     persistent lastData;
+%     
+%     if isempty(startTime)
+%         startTime = tic;
+%         lastTime = tic;
+%     end
+% 
+%     t = toc(startTime);
+%     
+% %     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% %     % ALTERNATIVELY TO CODE BELOW (UNCOMMENT THIS BLOCK): Return same data
+% %     % each call after a few seconds.
+% %     afterSecs = 5; % return differing data only for this many seconds
+% %     persistent sameData
+% %     persistent startTimeDiffData        
+% %     if isempty(startTimeDiffData)
+% %         startTimeDiffData = tic;
+% %     end    
+% %     if toc(startTimeDiffData) <= afterSecs || isempty(sameData) 
+% %         t = toc(startTime);
+% %         sameData = [rand(3,5), ones(3,1)*t, ones(3,1)];            
+% %     end             
+% %     data = sameData;
+% %     return
+% %     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%   
+%     
+%     if toc(lastTime) > 1/desiredFps || isempty(lastData)
+%         lastTime = tic;
+%         data = [rand(3,5), ones(3,1) * t, ones(3,1)];
+%         lastData = data;
+%     else
+%         data = [lastData(:,1:5),ones(3,1)*t,ones(3,1)];
+%     end
+% 
+% end
