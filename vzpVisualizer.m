@@ -982,13 +982,10 @@ if h.Value
     sdb.Enable = 'on';
     ssb.Enable = 'on';
 else
-    sub.Enable = 'on';
+    sub.Enable = 'off';
     spb.Enable = 'off';
     sdb.Enable = 'off';
     ssb.Enable = 'off';
-end
-if h.UserData.wasUnchecked
-    sub.Enable = 'off';
 end
 end
 
@@ -1078,15 +1075,35 @@ function T = relativeTimeStamps(frames,frameRate)
         end        
 end
 
-function data = getDat()
+function [data, maxWaitExc] = getDat(maxWait)
 % stream one frame from trackers, as soon as full buffer update has occurred.
+%
+% maxWait is optional, default Inf.
+% If maxWait (in seconds) is exceeded, the data obtained from VzGetDat is
+% returned no matter whether the buffer was fully updated. In that case,
+% maxWaitExc is set to 1 (else 0).
+
+if nargin < 1
+    maxWait = Inf;
+end
+
+tStart = tic;
 while 1
+    % get data
     tmpDat = VzGetDat;
-    if bufferUpdateCheck(tmpDat)
+    % check for buffer update, return if ok
+    if bufferUpdateCheck(tmpDat)        
+        maxWaitExc = 0;
         data = tmpDat;                
         break;
-    end    
+    end
+    % wait time exceeded
+    if toc(tStart) > maxWait
+        maxWaitExc = 1;
+        return
+    end
 end
+
 end
 
 % FOR DEBUGGING. Replaces PTI's VzGetDat and streams random data.
