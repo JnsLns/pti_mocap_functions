@@ -335,48 +335,55 @@ while 1
         hStreamCheckbox.UserData.wasUnchecked = 0;
         clearvars data;              
     end
+       
+    % request to restart online streaming 
+    
+    if hStreamingDiscardButton.UserData.wasClicked
+        hStreamingDiscardButton.UserData.wasClicked = 0;
+        hStreamCheckbox.Value = 1;
+        streamCheckbox_cb(hStreamCheckbox,[]);
+    end        
         
     % when streaming first enabled or restart of streaming requested, get
     % some sample data and construct data struct from that
     
-    if hStreamCheckbox.UserData.wasChecked || ...
-            hStreamingDiscardButton.UserData.wasClicked
-        % if restart requested and streaming pause on -> disable pause
+    if hStreamCheckbox.UserData.wasChecked 
+                    
+        % if streaming pause active -> disable 
         if hStreamingPauseButton.UserData.active == 1            
-            streamingPause_cb(hStreamingPauseButton); % will disable
+            streamingPause_cb(hStreamingPauseButton); 
         end
-        % reset click state of reset and checkbox
-        hStreamingDiscardButton.UserData.wasClicked = 0;
+        
+        % reset click state of and checkbox        
         hStreamCheckbox.UserData.wasChecked = 0;
+        
+        % reset variable to which data will be recorded
         data = struct();
+        
         % Get some sample data (one sec, but at least five frames)                
         f = 0; sampleTime = 1; sampleStart = tic;
         tmpDat = [];
         while toc(sampleStart) < sampleTime || size(tmpDat,3) < 5 
             f = f + 1;
             tmpDat(:,:,f) = getDat();
-        end                
-        % compute needed values
+        end         
+        
+        % compute needed values from sample data
         data(1).nFrames = f;                
         data(1).frameRate = f/sampleTime;                               
         data(1).nMarkers = size(tmpDat,1);        
         data(1).markerNames = cellstr(num2str(tmpDat(:,1:2,1)));
         data(1).markerIDs = tmpDat(:,1:2,1);
         data(1).crf = nan;
+        
         % Set some UI variables                       
         take = 1;
-        hSpeedMenu.Enable = 'off';
-        speed = 1;
-        hSpeedMenu.Value = find((speeds == 1));
-        hTakeMenu.Value = 1;
-        hTakeMenu.String = {1};
-        hTakeMenu.Enable = 'off';
-        hFrameSlider.Enable = 'off';                
-        hPauseButton.UserData  = 0; % disable pause
-        hPauseButton.Enable = 'off';        
-        hLoadButton.Enable = 'off'; 
+        speed = 1;                      
+        hSpeedMenu.Value = find((speeds == 1));        
+        
         % First few data points
         data(1).frames(:,:,1:5) = tmpDat(:,:,1:5);        
+        
     end
     
     % Load file
@@ -989,7 +996,16 @@ if h.UserData.wasChecked
     sub.Enable = 'off';
     spb.Enable = 'on';
     sdb.Enable = 'on';
-    ssb.Enable = 'on';
+    ssb.Enable = 'on';    
+    spm.Enable = 'off';
+    tkm.Value = 1;    
+    tkm.String = {1};
+    tkm.Enable = 'off';
+    fsd.Enable = 'off';
+    pbn.Enable = 'off';
+    pbn.UserData = 0;
+    pbn.Enable = 'off';
+    lbn.Enable = 'off';    
 elseif h.UserData.wasUnchecked
     sub.Enable = 'off';
     spb.Enable = 'off';
