@@ -13,6 +13,10 @@ function vzpVisualizer()
 % VzGetDat function replacement at the bottom of this file, which will
 % "stream" random data points.
 
+
+% TODO: MATLAB ROUND TIME DOES NOT MAKE SENSE!!!
+
+
 % Set up GUI etc.
 
 secsPerDegreeRotation = 0.01; % rotation speed
