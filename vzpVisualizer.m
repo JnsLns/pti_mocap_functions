@@ -18,7 +18,7 @@ function vzpVisualizer()
 % TODO: Clearvars when streaming unchecked necessary?
 % TODO: getDat... use maxWait and do not update data if exceeded (special
 % treatment might be needed for moment where streaming is first enabled and
-% vzsoft is not active).
+% vzsoft is not active). 
 
 % Set up GUI etc.
 
@@ -342,8 +342,7 @@ while 1
     if hStreamCheckbox.UserData.wasChecked || ...
             hStreamingDiscardButton.UserData.wasClicked
         % if restart requested and streaming pause on -> disable pause
-        if hStreamingPauseButton.UserData.active == 1
-            hStreamingPauseButton.UserData.active = 1;
+        if hStreamingPauseButton.UserData.active == 1            
             streamingPause_cb(hStreamingPauseButton); % will disable
         end
         % reset click state of reset and checkbox
