@@ -13,9 +13,11 @@ function vzpVisualizer()
 % VzGetDat function replacement at the bottom of this file, which will
 % "stream" random data points.
 
+
 % TODO: Make figure user data and store there things like speed, speeds,
 % take etc. to make it accessible to callbacks. Then move all logic
 % including these to callbacks. This should tidy up this code.
+
 
 % Set up GUI etc.
 
@@ -64,7 +66,7 @@ funFound = [];
 for funName = reqFunsExt
     funFound(end+1) = exist(funName{1});        
 end
-funFound = funFound == 2;
+funFound = funFound == 3;
 % Construct strings
 fnfStr = {'not found', 'found'};
 streamStr = ...
@@ -125,10 +127,10 @@ addlistener(hFrameSlider,'Value','PreSet',@frameSlider_preSet_cb);
 hFrameText = ...
     uicontrol(hFig, 'style', 'text', 'units', 'pixels', ...
     'position', [hBorder, vSliderBorder+height, fullWidth, height], ...
-    'string', 'Frame n/a of n/a | n/a of n/a s | n/a fps', ...
+    'string', ...
+    'Frame n/a of n/a | n/a of n/a s | n/a fps total | n/a fps last sec.', ...
     'horizontalAlignment', 'center', 'tooltip', ...
-    ['fps are obtained from loaded file or as streaming average. ', ...
-    '''trackers queried @'' gives a hard limit due to MATLAB loop round time.']);
+    'fps as given by loaded file or as mean over all streamed data');
     hFrameText.Units = 'normalized';
 
 hPauseButton = ...
@@ -238,11 +240,11 @@ hLoadButton.UserData.newFileLoaded = 0;
 
 hSaveStreamingButton = ...
     uicontrol(hFig, 'style', 'pushbutton', 'units', 'pixels', ...
-    'position', uiPos(1,19,hBorder,vBorder), ...
-    'string', 'Save to file', 'callback', @streamingSave_cb, ...
+    'position', uiPos(1,18,hBorder,vBorder), ...
+    'string', 'Save to *.mat', 'callback', @streamingSave_cb, ...
     'UserData', struct('wasClicked', 0), 'tag', ...
     'hSaveStreamingButton', 'Enable', 'off', 'tooltip', ...
-    'Save streamed data to *.mat file.');
+    'Save data to *.mat file.');
 
 hStreamingDiscardButton = ...
     uicontrol(hFig, 'style', 'pushbutton', 'units', 'pixels', ...
@@ -299,8 +301,9 @@ axc = hAx.Position(1:2)+hAx.Position(3:4)./2;
 txtWidth = 300;
 txtHeight = 30;
 hIdenticalDataText = ...
-    uicontrol('style', 'text', 'string', ['Warning: Recorded streaming data ', ...
-    'is unchanging. Capture process not running in VZSoft?'],...
+    uicontrol('style', 'text', 'string', ['Warning: Streamed data ', ...
+    'unchanging. Unchanged frames won''t be recorded. Capture process ', ...
+    'not running in VZSoft?'],...
     'position', ...
     [axc(1)-txtWidth/2, axc(2)-txtHeight/2, txtWidth, txtHeight], ...
     'foregroundcolor', 'r', 'visible', 'off', ...
@@ -380,9 +383,10 @@ while 1
         
         if waitSecsForBufferUpdateExc % streaming failed
             
+            waitfor(...
             msgbox(['Data obtained from trackers is not changing. Maybe ', ...
                 'data capture is inactive in VzSoft? I stopped ', ...
-                'streaming for now.'],'Static data');
+                'streaming for now.'],'Static data'));
         
             % if streaming pause was active before -> re-enable
             % else (=streaming was not active at all) -> disable streaming
@@ -424,7 +428,10 @@ while 1
     
     if hLoadButton.UserData.newFileLoaded             
         hLoadButton.UserData.newFileLoaded = 0;
-        data = hLoadButton.UserData.data.data;
+        data = hLoadButton.UserData.data;
+        if isfield(data,'data') % for *.mat (already contain struct 'data')
+            data = data.data;
+        end
         take = 1;
         hTakeMenu.Value = take;        
         hFrameSlider.Max = data(1).nFrames;
@@ -465,6 +472,27 @@ while 1
                                                     
     end
     
+%     % Stream data save button only operable when streamed data present
+%     if dataIsStreamedData
+%         hSaveStreamingButton.Enable = 'on';
+%     else
+%         hSaveStreamingButton.Enable = 'off';
+%     end
+    
+    % Make sure pausea and save buttons not operable when no data present,
+    % otherwise enable and set correct string for pause.
+    if ~exist('data', 'var') || isempty(data)            
+        hPauseButton.Enable = 'off';        
+        hSaveStreamingButton.Enable = 'off';
+    else
+        hSaveStreamingButton.Enable = 'on';
+        if hPauseButton.UserData == 1
+            hPauseButton.String = 'Play';
+        elseif hPauseButton.UserData == 0
+            hPauseButton.String = 'Pause';
+        end
+    end
+    
     % Iterate over frames
             
     tElapsed = 0;
@@ -475,27 +503,8 @@ while 1
     hFrameSlider.UserData.setElapsedTime = 0;
     forceReplot = 0;
     rotationTic = tic;
-    tic    
-    
-    % Stream data saving only when streamed data present
-    if dataIsStreamedData
-        hSaveStreamingButton.Enable = 'on';
-    else
-        hSaveStreamingButton.Enable = 'off';
-    end
-    
-    % Make sure pause button not operable when no data present,
-    % otherwise set correct string.
-    if ~exist('data', 'var') || isempty(data)            
-        hPauseButton.Enable = 'off';        
-    else
-        if hPauseButton.UserData == 1
-            hPauseButton.String = 'Play';
-        elseif hPauseButton.UserData == 0
-            hPauseButton.String = 'Pause';
-        end
-    end
-    
+    nWaitTimeExceeded = 0;
+    tic           
     
     while 1                        
         
@@ -519,11 +528,15 @@ while 1
             if ~waitSecsForBufferUpdateExc                
                 data(1).frames(:,:,end+1) = obtainedFrame;
                 hIdenticalDataText.Visible = 'off';
+                nWaitTimeExceeded = 0;
             else
-                obtainedFrame(:,7,:) = nan; % bad data will be nan
-                obtainedFrame(:,6,:) = data(1).frames(:,6,end)+waitSecsForBufferUpdate;                                 
-                data(1).frames(:,:,end+1) = obtainedFrame;
-                hIdenticalDataText.Visible = 'on';
+                % show warning only after some successive failures to
+                % prevent it from popping up intermittently when buffer
+                % update takes too long for other reasons.
+                nWaitTimeExceeded = nWaitTimeExceeded + 1;
+                if nWaitTimeExceeded > 3 
+                    hIdenticalDataText.Visible = 'on';
+                end
             end                
             data(1).nFrames = size(data(1).frames,3);                                           
             % If live plot is not paused or update button was pressed.
@@ -568,9 +581,9 @@ while 1
         
         % For quitters
         if hQuitButton.UserData.wantQuit           
-            if dataIsStreamedData
+            if exist('data', 'var') && ~isempty(data)   
                 resp = ...
-                    questdlg(['Save streamed data to file before quitting?'], ...
+                    questdlg(['Save data to mat-file before quitting?'], ...
                     'Save data', 'Yes', 'No', 'Yes');
                 if strcmp(resp, 'Yes')
                     saveStreamedData(data, frames, nFrames, frameRate)
@@ -621,11 +634,17 @@ while 1
                 curFrame = newFrame;
             end
             
-            % Update frame number
+            % Compute running fps 
+            fpsWindow = 1;
+            [~,indStart] = min(abs(T-(T(curFrame)-fpsWindow)));            
+            runningFps = (curFrame-indStart)/fpsWindow;            
+            
+            % Update frame number etc.
             hFrameText.String = ['Frame ', num2str(curFrame), ' of ', ...
                 num2str(nFrames), '  |  ', num2str(tElapsed), ' of ',...
                 num2str(takeDuration) ' s', ...
-                ' | ', num2str(frameRate), ' fps'];            
+                ' | ', num2str(frameRate), ' fps total', ...
+                ' | ', num2str(runningFps), ' fps last sec.'];            
 
             % roll around when take duration exceeded
             if tElapsed > T(end)
@@ -1037,7 +1056,7 @@ tkm = findobj(h.Parent,'tag','takeMenu');
 fsd = findobj(h.Parent,'tag','frameSlider');
 pbn = findobj(h.Parent,'tag','pauseButton');
 lbn = findobj(h.Parent,'tag','loadButton');
-idt = findobj(h.Parent.Parent,'tag','identicalDataText');
+idt = findobj(h.Parent,'tag','identicalDataText');
 
 if h.UserData.wasChecked
     sub.Enable = 'off';
@@ -1060,7 +1079,7 @@ elseif h.UserData.wasUnchecked
     tkm.Enable = 'on';
     fsd.Enable = 'on';
     pbn.Enable = 'on';
-    lbn.Enable = 'on';  
+    lbn.Enable = 'on';              
     idt.Visible = 'off';
 end   
 
@@ -1167,20 +1186,27 @@ end
 tStart = tic;
 while 1
     % get data
-    tmpDat = VzGetDat;
+    data = VzGetDat;
+    
     % check for buffer update, return if ok
-    if bufferUpdateCheck(tmpDat)        
+    % before check, temporarily fill zero rows with random number so that
+    % bufferUpdateCheck won't return false for successive frames of zero
+    % data.
+    checkDat = data;
+    [~,zeroRows] = zeroDataCheck(checkDat);
+    checkDat(zeroRows, 3:5) = rand;    
+    if bufferUpdateCheck(checkDat)        
         maxWaitExc = 0;
         break;
     end
+    
     % wait time exceeded
     if toc(tStart) > maxWait
         maxWaitExc = 1;        
         break
     end
+    
 end
-
-data = tmpDat;
 
 end
 
