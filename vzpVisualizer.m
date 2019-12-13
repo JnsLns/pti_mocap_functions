@@ -48,7 +48,7 @@ else
 end
 sysNote = ['Note that the current system is ', os, ' ', bit, '. MEX-files for this ', ...
  'system have the extension *.', reqMex, '.'];
-% required function names
+% required mex-function names
 reqFuns = ...
 {'VzGetDat', ...  
 'VzpGetTakeCount', ...
@@ -637,8 +637,8 @@ while 1
             % Compute running fps 
             fpsWindow = 1;
             [~,indStart] = min(abs(T-(T(curFrame)-fpsWindow)));            
-            runningFps = (curFrame-indStart)/fpsWindow;            
-            
+            runningFps = (curFrame-indStart)/(T(curFrame)-T(indStart));                        
+                                    
             % Update frame number etc.
             hFrameText.String = ['Frame ', num2str(curFrame), ' of ', ...
                 num2str(nFrames), '  |  ', num2str(tElapsed), ' of ',...
