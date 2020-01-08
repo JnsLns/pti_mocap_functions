@@ -755,12 +755,17 @@ while 1
                 end
                 hDataTable.Data = tblData;
                 
-                % Get history over last steps, for lines
+                % Get history over last steps, for lines; replace zero
+                % position values with nan so that these are not drawn in
+                % history lines
                 
                 histFrames = frames(:,:,max(1,curFrame-histLen):curFrame);
                 xHist = squeeze(histFrames(:,3,:))';
                 yHist = squeeze(histFrames(:,4,:))';
-                zHist = squeeze(histFrames(:,5,:))';                
+                zHist = squeeze(histFrames(:,5,:))';                                                                
+                xHist(xHist == 0) = nan;
+                yHist(yHist == 0) = nan;
+                zHist(zHist == 0) = nan;
                 
                 % Initialize dots (current marker positions)
                 
@@ -949,7 +954,7 @@ elseif strcmp(filename(fl-3:end),'.mat')
     end
 elseif strcmp(filename(fl-3:end),'.vzp')
     try
-        data = loadVzpFile(filename);
+        data = loadVzpFile(filename, false);
         disp('Loading data...')
     catch        
         loadError = 1;
