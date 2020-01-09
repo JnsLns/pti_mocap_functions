@@ -859,11 +859,13 @@ while 1
                         hFitAxesToHistButton.UserData.clicked || ...
                         hFitAxesToTakeDataButton.UserData.clicked
                     % if fit to all data requested, use all data, not hist
+                    % (last frame excluded as it sometimes holds erroneous
+                    % data)
                     if hFitAxesToTakeDataButton.UserData.clicked                        
                         hFitAxesToTakeDataButton.UserData.clicked = 0;
-                        xHist = squeeze(frames(:,3,:))';
-                        yHist = squeeze(frames(:,4,:))';
-                        zHist = squeeze(frames(:,5,:))';
+                        xHist = squeeze(frames(:,3,1:end-1))';
+                        yHist = squeeze(frames(:,4,1:end-1))';
+                        zHist = squeeze(frames(:,5,1:end-1))';                        
                     end                    
                     hFitAxesToHistButton.UserData.clicked = 0;                    
                     % Get history and exclude zeros
