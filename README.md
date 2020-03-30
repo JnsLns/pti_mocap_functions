@@ -9,6 +9,8 @@ There is extensive documentation within each function file. Here's a quick overv
 
 * `vzpVisualizer` is a GUI-based tool that allows visualizing both pre-recorded tracking data (\*.vzp or \*.mat files) and data streamed live from the motion tracker system.
 
+![vzp Visualizer window](doc_images/vzp_visualizer.jpg "Vzp Visualizer Window")
+
 ### Data quality
 
 * `batteryCheck` checks whether the batteries of wireless SIM markers might be exhausted.
